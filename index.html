@@ -648,28 +648,35 @@ const CONFIG = {
 
   // ───────────────────────────────────────────────────────────────────────
   // WEEKLY UNLOCK SCHEDULE
-  // One new week opens in every track each program-week. In program-week N,
-  // "Week N" unlocks across all tracks; earlier weeks stay open. Locked weeks
-  // appear greyed out with an "Unlocks <date>" label and can't be opened.
+  // One new week opens across every gated track each program-week. In program-week
+  // N, "Week N" unlocks everywhere; earlier weeks stay open. Locked weeks appear
+  // greyed out with an "Unlocks <date>" label and can't be opened.
   //   • GATING_ENABLED  – master switch. Set false to open everything at once.
-  //   • PROGRAM_START   – the Monday (or any date) that program-week 1 begins.
-  //                       CHANGE THIS to your real start date (local time).
-  //                       Format: "YYYY-MM-DD".
+  //   • PROGRAM_START_UTC – the exact UTC instant Week 1 begins. We anchor to
+  //                       Monday 6:00 AM CENTRAL so everyone unlocks at the same
+  //                       moment regardless of their device's timezone.
+  //                       6:00 AM CDT (summer) = 11:00 UTC. Week 1 = Mon Jun 15, 2026.
+  //                       Each later week opens +7 days at that same instant
+  //                       (Mon 6 AM Central). NOTE: if the program runs past early
+  //                       Nov 2026, CST (UTC-6→ still -6? no: CST = UTC-6 too in
+  //                       winter is -6... CDT=-5? ) — see UNLOCK_HOUR_UTC note below.
   //   • The Essentials checklist is NEVER gated (foundational setup).
-  GATING_ENABLED: false,
-  PROGRAM_START: "2026-06-23"   // ← SET YOUR START DATE HERE (program-week 1 begins)
+  GATING_ENABLED: true,
+  // Monday June 15, 2026, 6:00 AM Central (CDT, UTC-5 in summer) = 11:00 UTC.
+  PROGRAM_START_UTC: "2026-06-15T11:00:00Z"
 };
 
 // Which views are gated by the weekly schedule. Essentials is intentionally absent
 // (always fully open). 'main' covers both the Leadership and Admin 13-week tracks.
 const GATED_VIEWS = { main:true, skills:true, email:true, copilot:true, speaking:true };
 
-// How many program-weeks have elapsed, 1-based. Program-week 1 starts on
-// PROGRAM_START; each subsequent calendar week adds one. Before the start date it
-// returns 1 (nothing earlier than week 1 exists). Capped only by track length later.
+// How many program-weeks have elapsed, 1-based. Week 1 begins at PROGRAM_START_UTC
+// (Mon 6 AM Central); each subsequent Monday 6 AM Central adds one. Anchored to a
+// fixed UTC instant so every participant unlocks simultaneously no matter their
+// device timezone. Before kickoff it returns 1 (only Week 1 logic applies).
 function currentProgramWeek(){
   if(!CONFIG.GATING_ENABLED) return 9999;     // gating off → everything unlocked
-  const start = new Date(CONFIG.PROGRAM_START + "T00:00:00");
+  const start = new Date(CONFIG.PROGRAM_START_UTC);
   if(isNaN(start.getTime())) return 9999;     // bad date → fail open, never lock people out
   const now = new Date();
   const msPerWeek = 7 * 24 * 60 * 60 * 1000;
@@ -687,11 +694,12 @@ function weekUnlocked(view, weekNum){
 }
 
 // The calendar date a given week unlocks (for the "Unlocks <date>" label).
+// Anchored to the same Monday-6AM-Central instant; we display just the date.
 function weekUnlockDate(weekNum){
-  const start = new Date(CONFIG.PROGRAM_START + "T00:00:00");
+  const start = new Date(CONFIG.PROGRAM_START_UTC);
   if(isNaN(start.getTime())) return null;
   const d = new Date(start.getTime() + (Number(weekNum)-1) * 7*24*60*60*1000);
-  return d.toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
+  return d.toLocaleDateString(undefined, { weekday:'short', month:'short', day:'numeric' });
 }
 
 // Maps the dashboard's answer-box suffix -> the sheet's field name.
@@ -1706,7 +1714,7 @@ function renderPlan(){
             <div class="wk-meta">
               <div class="wk-theme">${w.theme}</div>
               <div class="wk-title">${w.title}</div>
-              <div class="wk-src lock-src">${IC.lock} Unlocks ${unlockDate ? 'the week of ' + unlockDate : 'soon'}</div>
+              <div class="wk-src lock-src">${IC.lock} Unlocks ${unlockDate ? unlockDate + ' · 6 AM CT' : 'soon'}</div>
             </div>
             <div class="wk-right">
               <div class="lock-badge" title="Unlocks ${unlockDate || 'soon'}">${IC.lock}</div>

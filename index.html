@@ -183,6 +183,13 @@
   /* ============ PLAN VIEW ============ */
   .phase{margin-top:14px}
 
+  .instructions{background:linear-gradient(180deg,#EEF4FA 0%,#E7F0F8 100%);border:1px solid #D5E2EF;border-left:4px solid var(--blue);border-radius:11px;padding:16px 18px;margin-top:6px}
+  .instructions-head{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--blue);margin-bottom:7px}
+  .instructions-head svg{width:15px;height:15px;stroke:var(--blue);fill:none}
+  .instructions p{font-size:13.5px;line-height:1.55;color:#3A4757;margin:0}
+  .instructions-gate{display:flex;align-items:flex-start;gap:7px;margin-top:10px!important;padding-top:10px;border-top:1px dashed #C3D4E4;color:#5A6B7D!important;font-size:12.5px!important}
+  .instructions-gate svg{width:14px;height:14px;stroke:#5A6B7D;fill:none;flex-shrink:0;margin-top:2px}
+
   .phase-head{display:flex;align-items:baseline;gap:14px;margin:38px 0 6px;padding-bottom:12px;border-bottom:2px solid #E1E8F0}
   .phase-num{font-size:13px;font-weight:800;color:var(--gold-deep);letter-spacing:.12em}
   .phase-title{font-size:20px;font-weight:700;color:var(--navy)}
@@ -191,6 +198,15 @@
 
   .week{background:var(--card);border-radius:12px;box-shadow:var(--shadow);margin-top:16px;overflow:hidden;border:1px solid #E6ECF3;transition:border-color .25s}
   .week.done{border-color:var(--done)}
+  .week.locked{background:#F4F6F9;border-color:#E1E7EF;box-shadow:none}
+  .week.locked .wk-badge{background:#B6C0CE}
+  .week.locked .wk-theme{color:#9AA6B4}
+  .week.locked .wk-title{color:#7E8A99}
+  .locked-top{display:flex;align-items:flex-start;gap:16px;padding:18px 20px;cursor:default;user-select:none}
+  .lock-src{color:#8A96A6!important;font-weight:600}
+  .lock-src svg{width:13px;height:13px;stroke:#8A96A6;fill:none}
+  .lock-badge{width:34px;height:34px;border-radius:8px;background:#E3E8EF;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .lock-badge svg{width:17px;height:17px;stroke:#8A96A6;fill:none}
   .week-top{display:flex;align-items:flex-start;gap:16px;padding:18px 20px;cursor:pointer;user-select:none}
   .wk-badge{flex-shrink:0;width:54px;height:54px;border-radius:10px;background:var(--navy);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1}
   .week.done .wk-badge{background:var(--done)}
@@ -202,6 +218,8 @@
   .wk-src{font-size:13px;color:var(--muted);margin-top:3px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .dot{width:3px;height:3px;border-radius:50%;background:var(--muted);display:inline-block}
   .runtime{font-weight:600;color:var(--steel)}
+  .runtime.ess-req{color:#fff;background:var(--navy);padding:1px 9px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.02em}
+  .runtime.ess-enc{color:var(--gold-deep);background:#FBF1D9;padding:1px 9px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.02em}
   .wk-right{display:flex;align-items:center;gap:14px;flex-shrink:0}
   .check{width:26px;height:26px;border-radius:7px;border:2px solid #C6D2DF;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .18s;background:#fff;flex-shrink:0}
   .check:hover{border-color:var(--blue)}
@@ -626,8 +644,55 @@ const CONFIG = {
   // Start in "form" mode so recording works immediately; switch to "worker"
   // once the /upload-audio endpoint is deployed.
   AUDIO_MODE: "form",
-  SPEAKING_UPLOAD_FORM: ""   // paste a Smartsheet attachment-form URL here for "form" mode
+  SPEAKING_UPLOAD_FORM: "",   // paste a Smartsheet attachment-form URL here for "form" mode
+
+  // ───────────────────────────────────────────────────────────────────────
+  // WEEKLY UNLOCK SCHEDULE
+  // One new week opens in every track each program-week. In program-week N,
+  // "Week N" unlocks across all tracks; earlier weeks stay open. Locked weeks
+  // appear greyed out with an "Unlocks <date>" label and can't be opened.
+  //   • GATING_ENABLED  – master switch. Set false to open everything at once.
+  //   • PROGRAM_START   – the Monday (or any date) that program-week 1 begins.
+  //                       CHANGE THIS to your real start date (local time).
+  //                       Format: "YYYY-MM-DD".
+  //   • The Essentials checklist is NEVER gated (foundational setup).
+  GATING_ENABLED: false,
+  PROGRAM_START: "2026-06-23"   // ← SET YOUR START DATE HERE (program-week 1 begins)
 };
+
+// Which views are gated by the weekly schedule. Essentials is intentionally absent
+// (always fully open). 'main' covers both the Leadership and Admin 13-week tracks.
+const GATED_VIEWS = { main:true, skills:true, email:true, copilot:true, speaking:true };
+
+// How many program-weeks have elapsed, 1-based. Program-week 1 starts on
+// PROGRAM_START; each subsequent calendar week adds one. Before the start date it
+// returns 1 (nothing earlier than week 1 exists). Capped only by track length later.
+function currentProgramWeek(){
+  if(!CONFIG.GATING_ENABLED) return 9999;     // gating off → everything unlocked
+  const start = new Date(CONFIG.PROGRAM_START + "T00:00:00");
+  if(isNaN(start.getTime())) return 9999;     // bad date → fail open, never lock people out
+  const now = new Date();
+  const msPerWeek = 7 * 24 * 60 * 60 * 1000;
+  const diff = now - start;
+  if(diff < 0) return 1;                        // before kickoff → only week 1 logic applies
+  return Math.floor(diff / msPerWeek) + 1;      // week 1 during the first 7 days, etc.
+}
+
+// Is a given week number unlocked in a gated view? Ungated views (e.g. essentials)
+// are always unlocked. Week N unlocks once the program reaches program-week N.
+function weekUnlocked(view, weekNum){
+  if(!CONFIG.GATING_ENABLED) return true;
+  if(!GATED_VIEWS[view]) return true;           // essentials & anything ungated
+  return Number(weekNum) <= currentProgramWeek();
+}
+
+// The calendar date a given week unlocks (for the "Unlocks <date>" label).
+function weekUnlockDate(weekNum){
+  const start = new Date(CONFIG.PROGRAM_START + "T00:00:00");
+  if(isNaN(start.getTime())) return null;
+  const d = new Date(start.getTime() + (Number(weekNum)-1) * 7*24*60*60*1000);
+  return d.toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
+}
 
 // Maps the dashboard's answer-box suffix -> the sheet's field name.
 //   1a -> Reflection 1, 1b -> Reflection 2, 1c -> Stood Out, 1f -> Facilitator
@@ -689,7 +754,8 @@ const PEOPLE = [
   { id:"michaeldurden", name:"Michael Durden",  role:"Supervisor",       initials:"MD", track:"leadership" },
   { id:"katherine", name:"Katherine McLemore",  role:"Administrator",    initials:"KA", track:"admin" },
   { id:"brenne",    name:"Brenna McLemore",     role:"Administrator",    initials:"BM", track:"admin" },
-  { id:"kevin",     name:"Kevin Gardner",       role:"Administrator",    initials:"KG", track:"admin" }
+  { id:"kevin",     name:"Kevin Gardner",       role:"Administrator",    initials:"KG", track:"leadership" },
+  { id:"mandy",     name:"Mandy Gardner",       role:"Administrator",    initials:"MG", track:"leadership" }
 ];
 
 /* ============ CURRICULUM (shared across people) ============ */
@@ -1101,12 +1167,46 @@ const SPEAKING_PHASES = [
 ];
 const SPEAKING_TOTAL = SPEAKING_PHASES.reduce((s,p)=>s+p.weeks.length,0);
 
+/* ============ ESSENTIALS CHECKLIST (Basic Leader Requirements) ============ */
+// Not a weekly track — a checklist of must-have leader essentials. Each item is
+// modeled as a numbered "week" (1..N) so it reuses the same completion / progress /
+// Smartsheet plumbing. An item completes when its checkbox is ticked.
+const ESSENTIALS_PHASES = [
+  {
+    num:"ESSENTIALS", title:"Basic Leader Requirements", tag:"The Essentials",
+    desc:"The non-negotiables every leader on this team should have squared away. Work through them at your own pace and check each one off as you complete it.",
+    weeks:[
+      { n:1, theme:"Email", title:"Professional Email Signature (New Emails)",
+        detail:"Set up a professional signature for new emails that includes your full name, your title, your contact info, and the company logo. This is your formal introduction on every new message you send.",
+        tag:"Required" },
+      { n:2, theme:"Email", title:"Reply Signature (Casual)",
+        detail:"Set up a shorter signature for replies — this one can be casual, like “Thanks, [Name]”. You don't need the full block on every back-and-forth message.",
+        tag:"Required" },
+      { n:3, theme:"Your Image", title:"Professional Headshot",
+        detail:"Have a professional headshot in place across your Microsoft platforms (Teams, Outlook, etc.). A real, professional photo makes you recognizable and credible to everyone you work with.",
+        tag:"Required" },
+      { n:4, theme:"Your Identity", title:"Define Your Purpose & Leadership Tagline",
+        detail:"Know what drives you. Define your purpose and your leadership tagline — a short line that captures how you lead. Have it ready and be able to recite it when someone asks.",
+        tag:"Required" },
+      { n:5, theme:"Your Presence", title:"Business Card",
+        detail:"Have a business card with your business contact information. When you meet someone, you should be able to hand them something professional.",
+        tag:"Required" },
+      { n:6, theme:"Your Network", title:"LinkedIn Profile",
+        detail:"Build and maintain a LinkedIn profile. It's where executives and leaders live — having a presence there puts you in the room with them.",
+        tag:"Strongly Encouraged" }
+    ]
+  }
+];
+const ESSENTIALS_TOTAL = ESSENTIALS_PHASES.reduce((s,p)=>s+p.weeks.length,0);
+
 // Which view is open: 'main' (leadership/admin), 'skills' (Excel), 'email' (Email
-// Etiquette), 'copilot' (Microsoft Copilot), or 'speaking' (Speaking Practice).
+// Etiquette), 'copilot' (Microsoft Copilot), 'speaking' (Speaking Practice), or
+// 'essentials' (Basic Leader Requirements checklist).
 let activeView = 'main';
 // The effective storage/rowKey prefix for the active person+view. Each interactive
-// track is namespaced ('skills-<id>', 'email-<id>', 'copilot-<id>', 'speaking-<id>').
-const VIEW_PREFIX = { skills:'skills', email:'email', copilot:'copilot', speaking:'speaking' };
+// track is namespaced ('skills-<id>', 'email-<id>', 'copilot-<id>', 'speaking-<id>',
+// 'essentials-<id>').
+const VIEW_PREFIX = { skills:'skills', email:'email', copilot:'copilot', speaking:'speaking', essentials:'essentials' };
 function activeKey(){
   if(!activePerson) return null;
   const pre = VIEW_PREFIX[activeView];
@@ -1118,6 +1218,7 @@ function activePhases(){
   if(activeView === 'email')  return EMAIL_PHASES;
   if(activeView === 'copilot') return COPILOT_PHASES;
   if(activeView === 'speaking') return SPEAKING_PHASES;
+  if(activeView === 'essentials') return ESSENTIALS_PHASES;
   return phasesFor(activePerson);
 }
 function activeTotal(){
@@ -1125,6 +1226,7 @@ function activeTotal(){
   if(activeView === 'email')  return EMAIL_TOTAL;
   if(activeView === 'copilot') return COPILOT_TOTAL;
   if(activeView === 'speaking') return SPEAKING_TOTAL;
+  if(activeView === 'essentials') return ESSENTIALS_TOTAL;
   return totalFor(activePerson);
 }
 
@@ -1149,7 +1251,8 @@ const IC = {
   download:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 3v12"/><polyline points="7 11 12 16 17 11"/><path d="M5 21h14"/></svg>',
   upload:'<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V7"/><polyline points="7 11 12 6 17 11"/><path d="M5 21h14"/></svg>',
   mic:'<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>',
-  stop:'<svg class="ic" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>'
+  stop:'<svg class="ic" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
+  lock:'<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4.5" y="11" width="15" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>'
 };
 
 /* ============ HELPERS ============ */
@@ -1280,6 +1383,7 @@ function renderLanding(){
       else if(view === 'email'){ total = EMAIL_TOTAL; done = doneCount('email-' + p.id); }
       else if(view === 'copilot'){ total = COPILOT_TOTAL; done = doneCount('copilot-' + p.id); }
       else if(view === 'speaking'){ total = SPEAKING_TOTAL; done = doneCount('speaking-' + p.id); }
+      else if(view === 'essentials'){ total = ESSENTIALS_TOTAL; done = doneCount('essentials-' + p.id); }
       else { total = totalFor(p); done = doneCount(p.id); }
       const tag = done>0 ? `  (${done}/${total})` : '';
       o.textContent = `${p.name} — ${p.role}${tag}`;
@@ -1330,6 +1434,10 @@ function renderLanding(){
     PEOPLE.filter(p=>p.track !== 'admin'), 'main', true);
   buildSelect('Administration Track · Soft Skills · 13 Weeks', 'Select your name…',
     PEOPLE.filter(p=>p.track === 'admin'), 'main', false);
+
+  addDivider('Essentials', 'Basic leader requirements — the non-negotiables');
+  buildSelect('Essentials Checklist · Basic Leader Requirements', 'Select your name…',
+    PEOPLE, 'essentials', false);
 
   addDivider('Interactive', 'Hands-on, self-paced work sessions');
   buildSelect('Excel Skills Track · 6 Weeks · Hands-On', 'Select your name…',
@@ -1515,6 +1623,16 @@ function renderLeaderboard(){
 
 
 /* ============ PLAN RENDER ============ */
+// Plain-language "How this works" instructions shown at the top of each track.
+const INSTRUCTIONS = {
+  main: "Each week, watch the short video, then write your reflections in the boxes provided. Commit to that week's action and check it off when it's done — Kevin will add facilitator comments as you go. Work one week at a time; your answers save automatically, and there's an optional bonus video each week if you want to go deeper.",
+  essentials: "These are the non-negotiables every leader here should have in place. Work through them at your own pace and check each one off as you complete it. Read \u201cWhat This Means\u201d under any item you're unsure about — items marked Required are expected of everyone, and LinkedIn is strongly encouraged.",
+  skills: "Each week, download the starter workbook, complete the exercises in Excel, then upload your finished file and check the box to mark the week done. The skills build on each other, so go in order and start with Week 1 even if you already know some Excel.",
+  email: "Each week, watch the short clip, then write your key takeaways in the box — that's what marks the week complete. We run everything through Outlook, so apply what you learn directly in your own inbox as you go.",
+  copilot: "Each week, watch the clip, then try the idea yourself in Copilot before writing your takeaways — writing them completes the week. The weeks build from the basics up to advanced use, so go in order and don't skip the hands-on part, because that's where it sticks.",
+  speaking: "Each week, read the scenario, then record a 1\u20132 minute message using your device's microphone. Play it back, re-record if you want, then submit. You'll get coaching feedback on your delivery — tone, pace, clarity, and filler words — under each week once it's reviewed. Find a quiet spot and speak like you mean it."
+};
+
 function renderPlan(){
   const view = document.getElementById('planView');
   const key = activeKey();
@@ -1523,8 +1641,22 @@ function renderPlan(){
   const email = activeView === 'email';
   const copilot = activeView === 'copilot';
   const speaking = activeView === 'speaking';
+  const essentials = activeView === 'essentials';
   const reflectView = email || copilot;   // watch-a-clip + single takeaway tracks
   view.innerHTML = '';
+
+  // "How this works" instructions banner for the active track.
+  const instr = INSTRUCTIONS[activeView];
+  if(instr){
+    const gated = GATED_VIEWS[activeView] && CONFIG.GATING_ENABLED;
+    const ib = document.createElement('div');
+    ib.className = 'instructions';
+    ib.innerHTML = `
+      <div class="instructions-head">${IC.note} How this works</div>
+      <p>${instr}</p>
+      ${gated ? `<p class="instructions-gate">${IC.lock} A new week unlocks each week of the program. Locked weeks show when they open — completed weeks stay open so you can always go back.</p>` : ``}`;
+    view.appendChild(ib);
+  }
 
   activePhases().forEach(phase=>{
     const pEl = document.createElement('div');
@@ -1538,26 +1670,55 @@ function renderPlan(){
       <p class="phase-desc">${phase.desc}</p>`;
     phase.weeks.forEach(w=>{
       const done = !!state[w.n];
+      const locked = !weekUnlocked(activeView, w.n);
       const card = document.createElement('div');
-      card.className = 'week' + (done?' done':'');
+      card.className = 'week' + (done?' done':'') + (locked?' locked':'');
       const doneTitle = skills
         ? (done?'Week complete — workbook uploaded':'Upload your completed workbook to finish this week')
         : speaking
         ? (done?'Week complete — message submitted':'Record and submit your message to finish this week')
+        : essentials
+        ? (done?'Done — checked off':'Check the box once you\'ve completed this')
         : reflectView
         ? (done?'Week complete — takeaway written':'Write your takeaway to finish this week')
         : (done?'Week complete':'Complete all 3 answers and commit to finish this week');
       const body = skills ? skillsBody(w, done)
         : speaking ? speakingBody(w)
+        : essentials ? essentialsBody(w)
         : reflectView ? emailBody(w)
         : videoBody(w);
-      // Speaking weeks have no video source/runtime; show the focus line instead.
-      const srcLine = speaking
+      // Essentials items show a tag (Required / Strongly Encouraged) instead of source/runtime;
+      // speaking weeks have no video source/runtime; everything else shows source + runtime.
+      const srcLine = essentials
+        ? `<div class="wk-src">${w.theme}<span class="dot"></span><span class="runtime ess-${w.tag==='Required'?'req':'enc'}">${w.tag}</span></div>`
+        : speaking
         ? `<div class="wk-src">${w.theme} practice<span class="dot"></span><span class="runtime">record 1–2 min</span></div>`
         : `<div class="wk-src">${w.src}<span class="dot"></span><span class="runtime">${w.runtime}</span></div>`;
+      // Essentials uses "Item N"; week-based tracks use "Week N".
+      const badgeLabel = essentials ? 'Item' : 'Week';
+
+      if(locked){
+        // Locked week: greyed out, not expandable, shows when it unlocks.
+        const unlockDate = weekUnlockDate(w.n);
+        card.innerHTML = `
+          <div class="week-top locked-top">
+            <div class="wk-badge"><span class="l">${badgeLabel}</span><span class="n">${w.n}</span></div>
+            <div class="wk-meta">
+              <div class="wk-theme">${w.theme}</div>
+              <div class="wk-title">${w.title}</div>
+              <div class="wk-src lock-src">${IC.lock} Unlocks ${unlockDate ? 'the week of ' + unlockDate : 'soon'}</div>
+            </div>
+            <div class="wk-right">
+              <div class="lock-badge" title="Unlocks ${unlockDate || 'soon'}">${IC.lock}</div>
+            </div>
+          </div>`;
+        pEl.appendChild(card);
+        return;
+      }
+
       card.innerHTML = `
         <div class="week-top" data-toggle="${w.n}">
-          <div class="wk-badge"><span class="l">Week</span><span class="n">${w.n}</span></div>
+          <div class="wk-badge"><span class="l">${badgeLabel}</span><span class="n">${w.n}</span></div>
           <div class="wk-meta">
             <div class="wk-theme">${w.theme}</div>
             <div class="wk-title">${w.title}</div>
@@ -1659,6 +1820,27 @@ function skillsBody(w, done){
         <label class="commit upload-commit" data-upload="${w.n}">
           <span class="commit-box">${IC.check}</span>
           <span class="commit-msg">Workbook completed &amp; uploaded</span>
+        </label>
+      </div>
+    </div>`;
+}
+
+// Body for an Essentials checklist item: explanation + a single "check it off" box.
+// Ticking the box (data-essential) marks the item complete and syncs to Smartsheet,
+// exactly like the skills upload checkbox.
+function essentialsBody(w){
+  const encouraged = w.tag !== 'Required';
+  return `
+    <div class="blocks">
+      <div class="block task"><h4>${IC.star} What This Means</h4><p>${w.detail}</p></div>
+      <div class="block upload">
+        <h4>${IC.upload} Mark It Done</h4>
+        <p class="bonus-sub">${encouraged
+          ? 'Strongly encouraged. Check the box once you\'ve got this in place.'
+          : 'Check the box once you\'ve completed this requirement.'}</p>
+        <label class="commit upload-commit" data-essential="${w.n}">
+          <span class="commit-box">${IC.check}</span>
+          <span class="commit-msg">I\'ve completed this</span>
         </label>
       </div>
     </div>`;
@@ -1793,6 +1975,31 @@ function bindPlan(){
           .catch(()=>flashSave('error'));
       } else { saveLocal(); }
       paintWeek(week);
+      updateProgress();
+    });
+  });
+  // Essentials checklist: "I've completed this" checkbox IS the completion criterion
+  // for an item, so it directly marks the item done and syncs the 'complete' flag to
+  // Smartsheet (rowKey essentials-<id>-<item>).
+  document.querySelectorAll('#planView [data-essential]').forEach(el=>{
+    const n = el.dataset.essential;
+    const item = String(n);
+    if((allState[key]||{})[item]) el.classList.add('on');
+    el.addEventListener('click', e=>{
+      e.preventDefault();
+      if(!allState[key]) allState[key] = {};
+      const s = allState[key];
+      const now = !s[item];
+      if(now){ s[item] = true; } else { delete s[item]; }
+      el.classList.toggle('on', now);
+      try{ window.name = JSON.stringify({lead90multi:allState, lead90answers:allAnswers}); }catch(e){}
+      if(CONFIG.LIVE){
+        flashSave('saving');
+        apiSave(key + "-" + item, "complete", now)
+          .then(()=>flashSave('saved'))
+          .catch(()=>flashSave('error'));
+      } else { saveLocal(); }
+      paintWeek(item);
       updateProgress();
     });
   });
@@ -2037,7 +2244,7 @@ function updateProgress(){
 /* ============ VIEW SWITCHING ============ */
 function openPlan(personId, view){
   activePerson = PEOPLE.find(p=>p.id===personId);
-  activeView = (view === 'skills' || view === 'email' || view === 'copilot' || view === 'speaking') ? view : 'main';
+  activeView = (view === 'skills' || view === 'email' || view === 'copilot' || view === 'speaking' || view === 'essentials') ? view : 'main';
   document.getElementById('landingView').classList.add('hidden');
   document.getElementById('planView').classList.remove('hidden');
   document.getElementById('backBtn').classList.remove('hidden');
@@ -2059,6 +2266,10 @@ function openPlan(personId, view){
     document.getElementById('headTitle').innerHTML = `${activePerson.name} <span>— Speaking Practice</span>`;
     document.getElementById('headSub').textContent =
       `${activePerson.role}, Region 117. Six weeks of spoken-message reps — record a 1–2 minute message, submit it, and get coaching on your delivery.`;
+  } else if(activeView === 'essentials'){
+    document.getElementById('headTitle').innerHTML = `${activePerson.name} <span>— Essentials Checklist</span>`;
+    document.getElementById('headSub').textContent =
+      `${activePerson.role}, Region 117. The basic leader requirements — work through each one and check it off as you go.`;
   } else {
     const isAdmin = activePerson.track === 'admin';
     const planName = isAdmin ? 'Soft-Skills Track' : 'Leadership Track';
@@ -2096,15 +2307,18 @@ document.getElementById('reset').addEventListener('click', async ()=>{
   const email = activeView === 'email';
   const copilot = activeView === 'copilot';
   const speaking = activeView === 'speaking';
+  const essentials = activeView === 'essentials';
   const reflectView = email || copilot;   // takeaway-driven tracks (stored in r1)
+  const checkboxOnly = skills || essentials; // completion is a single checkbox per item
   const label = skills ? `${activePerson.name}'s Excel Skills Track progress`
     : email ? `${activePerson.name}'s Email Etiquette progress and takeaways`
     : copilot ? `${activePerson.name}'s Microsoft Copilot progress and takeaways`
     : speaking ? `${activePerson.name}'s Speaking Practice submissions and feedback`
+    : essentials ? `${activePerson.name}'s Essentials Checklist progress`
     : `all of ${activePerson.name}'s progress AND written reflection answers`;
   if(!confirm(`Clear ${label}? This can't be undone.`)) return;
 
-  const key = activeKey();           // 'kyle', 'skills-kyle', 'email-kyle', 'speaking-kyle'
+  const key = activeKey();           // 'kyle', 'skills-kyle', 'essentials-kyle', etc.
   allState[key] = {};
   allAnswers[key] = {};
   // Also clear this person's cached commit/bonus/upload flags so they don't return on reload.
@@ -2122,8 +2336,8 @@ document.getElementById('reset').addEventListener('click', async ()=>{
       const total = activeTotal();
       for(let w=1; w<=total; w++){
         const rowKey = key + "-" + w;
-        if(skills){
-          // Skills weeks only track completion (the uploaded checkbox).
+        if(checkboxOnly){
+          // Skills & Essentials only track completion (a single checkbox per item).
           await apiSave(rowKey, "complete", false);
         } else if(speaking){
           // Speaking weeks: clear the submission status (r1) AND the coach feedback (fc).
